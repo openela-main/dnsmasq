@@ -1,0 +1,49 @@
+From dcb4fa04548ab2364f662b735be86e275bd50745 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Fri, 19 Jul 2019 14:00:08 +0200
+Subject: [PATCH] Remove warnings in coverity
+
+Change in dnsmasq should never occur, because ent_pw would not change.
+But keep Coverity happy and prevent logic error. Second change avoids
+warning from compiler.
+---
+ src/dnsmasq.c | 9 ++++++++-
+ src/option.c  | 2 +-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/dnsmasq.c b/src/dnsmasq.c
+index ce44809..2984f55 100644
+--- a/src/dnsmasq.c
++++ b/src/dnsmasq.c
+@@ -608,7 +608,14 @@ int main (int argc, char **argv)
+   
+       if (ent_pw && ent_pw->pw_uid != 0)
+ 	{     
+-#if defined(HAVE_LINUX_NETWORK)	  
++#if defined(HAVE_LINUX_NETWORK)
++	  if (!hdr || !data)
++	    {
++	      /* Just failsafe for logic errors */
++	      send_event(err_pipe[1], EVENT_CAP_ERR, ENOMEM, NULL);
++	      _exit(0);
++	    }
++
+ 	  /* On linux, we keep CAP_NETADMIN (for ARP-injection) and
+ 	     CAP_NET_RAW (for icmp) if we're doing dhcp. If we have yet to bind 
+ 	     ports because of DAD, or we're doing it dynamically,
+diff --git a/src/option.c b/src/option.c
+index 9768efb..b12183b 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -4255,7 +4255,7 @@ err:
+ 		struct name_list *nl;
+ 		if (!canon)
+                   {
+-		    struct name_list *tmp = new->names, *next;
++		    struct name_list *tmp, *next;
+ 		    for (tmp = new->names; tmp; tmp = next)
+ 		      {
+ 			next = tmp->next;
+-- 
+2.20.1
+

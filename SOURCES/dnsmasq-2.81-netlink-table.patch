@@ -1,0 +1,45 @@
+From 595b2e2e87f152c4ade7e2d66cb78915096f60c2 Mon Sep 17 00:00:00 2001
+From: Donald Sharp <donaldsharp72@gmail.com>
+Date: Mon, 2 Mar 2020 11:23:36 -0500
+Subject: [PATCH] Ignore routes in non-main tables
+
+Route lookup in Linux is bounded by `ip rules` as well
+as the contents of specific routing tables.  With the
+advent of vrf's(l3mdev's) non-default tables are regularly being
+used for routing purposes.
+
+dnsmasq listens to all route changes on the box and responds
+to each one with an event.  This is *expensive* when a full
+BGP routing table is placed into the linux kernel, moreso
+when dnsmasq is responding to events in tables that it will
+never actually need to respond to, since dnsmasq at this
+point in time has no concept of vrf's and would need
+to be programmed to understand them.  Help alleviate this load
+by reducing the set of data that dnsmasq pays attention to
+when we know there are events that are not useful at this
+point in time.
+
+Signed-off-by: Donald Sharp <donaldsharp72@gmail.com>
+(cherry picked from commit b2ed691eb3ca6488a8878f5f3dd950a07b14a9db)
+---
+ src/netlink.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/netlink.c b/src/netlink.c
+index 8cd51af..0a3da3e 100644
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -363,7 +363,9 @@ static void nl_async(struct nlmsghdr *h)
+ 	 failing. */ 
+       struct rtmsg *rtm = NLMSG_DATA(h);
+       
+-      if (rtm->rtm_type == RTN_UNICAST && rtm->rtm_scope == RT_SCOPE_LINK)
++      if (rtm->rtm_type == RTN_UNICAST && rtm->rtm_scope == RT_SCOPE_LINK &&
++	  (rtm->rtm_table == RT_TABLE_MAIN ||
++	   rtm->rtm_table == RT_TABLE_LOCAL))
+ 	queue_event(EVENT_NEWROUTE);
+     }
+   else if (h->nlmsg_type == RTM_NEWADDR || h->nlmsg_type == RTM_DELADDR) 
+-- 
+2.26.2
+

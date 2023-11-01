@@ -1,0 +1,52 @@
+From cae343c1f3bea9d1ca2e71d3709d3f02b799f94d Mon Sep 17 00:00:00 2001
+From: Petr Mensik <pemensik@redhat.com>
+Date: Thu, 4 Jul 2019 20:28:08 +0200
+Subject: [PATCH 1/5] Log listening on new interfaces
+
+Log in debug mode listening on interfaces. They can be dynamically
+found, include interface number, since it is checked on TCP connections.
+Print also addresses found on them.
+---
+ src/network.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/network.c b/src/network.c
+index d75f560..fd90288 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -662,6 +662,13 @@ int enumerate_interfaces(int reset)
+ 	  else
+ 	    {
+ 	      *up = l->next;
++	      if (l->iface->done)
++	        {
++	          iface = l->iface;
++	          (void)prettyprint_addr(&iface->addr, daemon->addrbuff);
++	          my_syslog(LOG_DEBUG, _("stopped listening on %s(#%d): %s"),
++	                    iface->name, iface->index, daemon->addrbuff);
++	        }
+ 	      
+ 	      /* In case it ever returns */
+ 	      l->iface->done = 0;
+@@ -978,6 +985,9 @@ void create_bound_listeners(int dienow)
+ 	new->next = daemon->listeners;
+ 	daemon->listeners = new;
+ 	iface->done = 1;
++	(void)prettyprint_addr(&iface->addr, daemon->addrbuff);
++	my_syslog(LOG_DEBUG, _("listening on %s(#%d): %s"),
++	          iface->name, iface->index, daemon->addrbuff);
+       }
+ 
+   /* Check for --listen-address options that haven't been used because there's
+@@ -997,6 +1007,8 @@ void create_bound_listeners(int dienow)
+       {
+ 	new->next = daemon->listeners;
+ 	daemon->listeners = new;
++	(void)prettyprint_addr(&if_tmp->addr, daemon->addrbuff);
++	my_syslog(LOG_DEBUG, _("listening on %s"), daemon->addrbuff);
+       }
+ }
+ 
+-- 
+2.20.1
+

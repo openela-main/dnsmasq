@@ -1,0 +1,25 @@
+From 03212e533b1e07aba30d2f4112009dc3af867ea5 Mon Sep 17 00:00:00 2001
+From: Simon Kelley <simon@thekelleys.org.uk>
+Date: Tue, 4 Sep 2018 17:52:28 +0100
+Subject: [PATCH] Manpage typo.
+
+---
+ man/dnsmasq.8 | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/man/dnsmasq.8 b/man/dnsmasq.8
+index ebfadba..a62860e 100644
+--- a/man/dnsmasq.8
++++ b/man/dnsmasq.8
+@@ -27,7 +27,7 @@ TFTP server to allow net/PXE boot of DHCP hosts and also supports BOOTP. The PXE
+ .PP
+ The dnsmasq DHCPv6 server provides the same set of features as the
+ DHCPv4 server, and in addition, it includes router advertisements and
+-a neat feature which allows nameing for clients which use DHCPv4 and
++a neat feature which allows naming for clients which use DHCPv4 and
+ stateless autoconfiguration only for IPv6 configuration. There is support for doing address allocation (both DHCPv6 and RA) from subnets which are dynamically delegated via DHCPv6 prefix delegation.
+ .PP
+ Dnsmasq is coded with small embedded systems in mind. It aims for the smallest possible memory footprint compatible with the supported functions,  and allows unneeded functions to be omitted from the compiled binary.  
+-- 
+2.31.1
+

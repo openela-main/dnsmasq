@@ -1,0 +1,75 @@
+From 3d27384fc5f2a437b7bce128c8ba62e8d6e12df7 Mon Sep 17 00:00:00 2001
+From: Brian Haley <haleyb.dev@gmail.com>
+Date: Wed, 28 Aug 2019 16:13:23 -0400
+Subject: [PATCH] Change dhcp_release to use default address when no IP subnet
+ matches
+
+Currently, dhcp_release will only send a 'fake' release
+when the address given is in the same subnet as an IP
+on the interface that was given.
+
+This doesn't work in an environment where dnsmasq is
+managing leases for remote subnets via a DHCP relay, as
+running dhcp_release locally will just cause it to
+silently exit without doing anything, leaving the lease
+in the database.
+
+Change it to use the default IP on the interface, as the
+dnsmasq source code at src/dhcp.c does, if no matching subnet
+IP is found, as a fall-back.  This fixes an issue we are
+seeing in certain Openstack deployments where we are using
+dnsmasq to provision baremetal systems in a datacenter.
+
+While using Dbus might have seemed like an obvious solution,
+because of our extensive use of network namespaces (which
+Dbus doesn't support), this seemed like a better solution
+than creating system.d policy files for each dnsmasq we
+might spawn and using --enable-dbus=$id in order to isolate
+messages to specific dnsmasq instances.
+
+Signed-off-by: Brian Haley <haleyb.dev@gmail.com>
+(cherry picked from commit d9f882bea2806799bf3d1f73937f5e72d0bfc650)
+---
+ contrib/lease-tools/dhcp_release.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/contrib/lease-tools/dhcp_release.c b/contrib/lease-tools/dhcp_release.c
+index a51f04b..1dd8d32 100644
+--- a/contrib/lease-tools/dhcp_release.c
++++ b/contrib/lease-tools/dhcp_release.c
+@@ -178,7 +178,7 @@ static int is_same_net(struct in_addr a, struct in_addr b, struct in_addr mask)
+   return (a.s_addr & mask.s_addr) == (b.s_addr & mask.s_addr);
+ }
+ 
+-static struct in_addr find_interface(struct in_addr client, int fd, unsigned int index)
++static struct in_addr find_interface(struct in_addr client, int fd, unsigned int index, int ifrfd, struct ifreq *ifr)
+ {
+   struct sockaddr_nl addr;
+   struct nlmsghdr *h;
+@@ -218,7 +218,13 @@ static struct in_addr find_interface(struct in_addr client, int fd, unsigned int
+ 
+       for (h = (struct nlmsghdr *)iov.iov_base; NLMSG_OK(h, (size_t)len); h = NLMSG_NEXT(h, len))
+ 	if (h->nlmsg_type == NLMSG_DONE)
+-	  exit(0);
++          {
++	    /* No match found, return first address as src/dhcp.c code does */
++	    ifr->ifr_addr.sa_family = AF_INET;
++	    if (ioctl(ifrfd, SIOCGIFADDR, ifr) != -1)
++	      return ((struct sockaddr_in *)&ifr->ifr_addr)->sin_addr;
++	    exit(0);
++          }
+ 	else if (h->nlmsg_type == RTM_NEWADDR)
+           {
+             struct ifaddrmsg *ifa = NLMSG_DATA(h);  
+@@ -284,7 +290,7 @@ int main(int argc, char **argv)
+     }
+   
+   lease.s_addr = inet_addr(argv[2]);
+-  server = find_interface(lease, nl, if_nametoindex(argv[1]));
++  server = find_interface(lease, nl, if_nametoindex(argv[1]), fd, &ifr);
+   
+   memset(&packet, 0, sizeof(packet));
+  
+-- 
+2.20.1
+

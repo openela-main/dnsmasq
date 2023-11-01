@@ -1,0 +1,161 @@
+From 03936d309782da038a2982b08fce7be85d884f0e Mon Sep 17 00:00:00 2001
+From: Vladislav Grishenko <themiron@mail.ru>
+Date: Sun, 8 Mar 2020 15:34:34 +0000
+Subject: [PATCH] Add DHCPv6 ntp-server (56) option handling.
+
+There was discussion in the past regarding DHCPv6 NTP server option
+which needs special subclassing per RFC5908.
+
+Patch adds support for unicast, multicast IPv6 address and for FQDN string,
+preserving possibly used (as suggested earlier) hex value.
+
+Unfortunately it's still not fully free from limitations - only address list or
+only fqdn value list is possible, not mixed due current
+state option parsing & flagging.
+
+(cherry picked from commit dded78b2338147daf69064d6d48c16b12744e441)
+---
+ src/dhcp-common.c    |  2 +-
+ src/dhcp6-protocol.h |  4 ++++
+ src/option.c         | 19 ++++++++++++++++---
+ src/rfc3315.c        | 24 ++++++++++++++++++++----
+ 4 files changed, 41 insertions(+), 8 deletions(-)
+
+diff --git a/src/dhcp-common.c b/src/dhcp-common.c
+index 368d686..242a5a1 100644
+--- a/src/dhcp-common.c
++++ b/src/dhcp-common.c
+@@ -642,7 +642,7 @@ static const struct opttab_t opttab6[] = {
+   { "sntp-server", 31,  OT_ADDR_LIST },
+   { "information-refresh-time", 32, OT_TIME },
+   { "FQDN", 39, OT_INTERNAL | OT_RFC1035_NAME },
+-  { "ntp-server", 56,  0 },
++  { "ntp-server", 56, 0 /* OT_ADDR_LIST | OT_RFC1035_NAME */ },
+   { "bootfile-url", 59, OT_NAME },
+   { "bootfile-param", 60, OT_CSTRING },
+   { "client-arch", 61, 2 | OT_DEC }, /* RFC 5970 */
+diff --git a/src/dhcp6-protocol.h b/src/dhcp6-protocol.h
+index fee5d28..05560e8 100644
+--- a/src/dhcp6-protocol.h
++++ b/src/dhcp6-protocol.h
+@@ -59,12 +59,16 @@
+ #define OPTION6_REMOTE_ID       37
+ #define OPTION6_SUBSCRIBER_ID   38
+ #define OPTION6_FQDN            39
++#define OPTION6_NTP_SERVER      56
+ #define OPTION6_CLIENT_MAC      79
+ 
+ /* replace this with the real number when allocated.
+    defining this also enables the relevant code. */ 
+ /* #define OPTION6_PREFIX_CLASS    99 */
+ 
++#define NTP_SUBOPTION_SRV_ADDR  1
++#define NTP_SUBOPTION_MC_ADDR   2
++#define NTP_SUBOPTION_SRV_FQDN  3
+ 
+ #define DHCP6SUCCESS     0
+ #define DHCP6UNSPEC      1
+diff --git a/src/option.c b/src/option.c
+index 6fa7bbd..1382c55 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -1245,6 +1245,12 @@ static int parse_dhcp_opt(char *errstr, char *arg, int flags)
+       if (!found_dig)
+ 	is_dec = is_addr = 0;
+      
++#ifdef HAVE_DHCP6
++      /* NTP server option takes hex, addresses or FQDN */
++      if (is6 && new->opt == OPTION6_NTP_SERVER && !is_hex)
++	opt_len |= is_addr6 ? OT_ADDR_LIST : OT_RFC1035_NAME;
++#endif
++     
+       /* We know that some options take addresses */
+       if (opt_len & OT_ADDR_LIST)
+ 	{
+@@ -1505,8 +1511,9 @@ static int parse_dhcp_opt(char *errstr, char *arg, int flags)
+ 	    }
+ 	  else if (comma && (opt_len & OT_RFC1035_NAME))
+ 	    {
+-	      unsigned char *p = NULL, *newp, *end;
++	      unsigned char *p = NULL, *q, *newp, *end;
+ 	      int len = 0;
++	      int header_size = (is6 && new->opt == OPTION6_NTP_SERVER) ? 4 : 0;
+ 	      arg = comma;
+ 	      comma = split(arg);
+ 	      
+@@ -1516,7 +1523,7 @@ static int parse_dhcp_opt(char *errstr, char *arg, int flags)
+ 		  if (!dom)
+ 		    goto_err(_("bad domain in dhcp-option"));
+ 		    		  
+-		  newp = opt_malloc(len + strlen(dom) + 2);
++		  newp = opt_malloc(len + header_size + strlen(dom) + 2);
+ 		  
+ 		  if (p)
+ 		    {
+@@ -1525,8 +1532,14 @@ static int parse_dhcp_opt(char *errstr, char *arg, int flags)
+ 		    }
+ 		  
+ 		  p = newp;
+-		  end = do_rfc1035_name(p + len, dom, NULL);
++		  q = p + len;
++		  end = do_rfc1035_name(q + header_size, dom, NULL);
+ 		  *end++ = 0;
++		  if (is6 && new->opt == OPTION6_NTP_SERVER)
++		    {
++		      PUTSHORT(NTP_SUBOPTION_SRV_FQDN, q);
++		      PUTSHORT(end - q - 2, q);
++		    }
+ 		  len = end - p;
+ 		  free(dom);
+ 
+diff --git a/src/rfc3315.c b/src/rfc3315.c
+index 1f1aad8..0fa12ad 100644
+--- a/src/rfc3315.c
++++ b/src/rfc3315.c
+@@ -1380,23 +1380,39 @@ static struct dhcp_netid *add_options(struct state *state, int do_refresh)
+ 	      	  
+ 	      for (a = (struct in6_addr *)opt_cfg->val, j = 0; j < opt_cfg->len; j+=IN6ADDRSZ, a++)
+ 		{
++		  struct in6_addr *p = NULL;
++
+ 		  if (IN6_IS_ADDR_UNSPECIFIED(a))
+ 		    {
+ 		      if (!add_local_addrs(state->context))
+-			put_opt6(state->fallback, IN6ADDRSZ);
++			p = state->fallback;
+ 		    }
+ 		  else if (IN6_IS_ADDR_ULA_ZERO(a))
+ 		    {
+ 		      if (!IN6_IS_ADDR_UNSPECIFIED(state->ula_addr))
+-			put_opt6(state->ula_addr, IN6ADDRSZ);
++			p = state->ula_addr;
+ 		    }
+ 		  else if (IN6_IS_ADDR_LINK_LOCAL_ZERO(a))
+ 		    {
+ 		      if (!IN6_IS_ADDR_UNSPECIFIED(state->ll_addr))
+-			put_opt6(state->ll_addr, IN6ADDRSZ);
++			p = state->ll_addr;
++		    }
++		  else
++		    p = a;
++
++		  if (!p)
++		    continue;
++		  else if (opt_cfg->opt == OPTION6_NTP_SERVER)
++		    {
++		      if (IN6_IS_ADDR_MULTICAST(p))
++			o1 = new_opt6(NTP_SUBOPTION_MC_ADDR);
++		      else
++			o1 = new_opt6(NTP_SUBOPTION_SRV_ADDR);
++		      put_opt6(p, IN6ADDRSZ);
++		      end_opt6(o1);
+ 		    }
+ 		  else
+-		    put_opt6(a, IN6ADDRSZ);
++		    put_opt6(p, IN6ADDRSZ);
+ 		}
+ 
+ 	      end_opt6(o);
+-- 
+2.36.1
+

@@ -1,0 +1,44 @@
+From 6307208c806f9b968eca178931b3d77c4ed83c54 Mon Sep 17 00:00:00 2001
+From: Petr Mensik <pemensik@redhat.com>
+Date: Fri, 6 Mar 2020 15:37:23 +0100
+Subject: [PATCH] Correct range check of dhcp-host prefix
+
+It incorrectly works with 32 bit integer only when counting number of
+addresses in range. It works correctly only between prefixlen 96 and
+128. Use 64bit shift to work with well with numbers higher than 64.
+
+Fixes commit 79aba0f10ad0157fb4f48afbbcb03f094caff97a error.
+---
+ src/option.c  | 2 +-
+ src/rfc3315.c | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/option.c b/src/option.c
+index 88cd2ab..79122df 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -3247,7 +3247,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 			
+ 			if (!atoi_check(pref, &new_addr->prefixlen) ||
+ 			    new_addr->prefixlen > 128 ||
+-			    (((1<<(128-new_addr->prefixlen))-1) & addrpart) != 0)
++			    ((((u64)1<<(128-new_addr->prefixlen))-1) & addrpart) != 0)
+ 			  {
+ 			    dhcp_config_free(new);
+ 			    ret_err(_("bad IPv6 prefix"));
+diff --git a/src/rfc3315.c b/src/rfc3315.c
+index a0067e9..f59aedc 100644
+--- a/src/rfc3315.c
++++ b/src/rfc3315.c
+@@ -1798,7 +1798,7 @@ static int config_valid(struct dhcp_config *config, struct dhcp_context *context
+       addresses = 1;
+ 
+       if (addr_list->flags & ADDRLIST_PREFIX)
+-	addresses = 1<<(128-addr_list->prefixlen);
++	addresses = (u64)1<<(128-addr_list->prefixlen);
+ 		
+       if ((addr_list->flags & ADDRLIST_WILDCARD))
+ 	{
+-- 
+2.21.1
+

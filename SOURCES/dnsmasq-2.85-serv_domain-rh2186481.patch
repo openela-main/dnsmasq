@@ -1,0 +1,108 @@
+From c0e0202736f55195104dad9fec98c20d0d15df21 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Fri, 21 Apr 2023 17:04:53 +0200
+Subject: [PATCH] Correct releasing of serv_domain
+
+In case the server->serv_domain points to domain also when it is not the
+last server used, ensure the reference to last_server is always reset.
+Some records might reference the server_domain, but cannot ever become
+last_server. Such as server=/example.com/#
+
+Correct detection of used server_domains for standard resolvers case.
+Mark domain used even in that case, so it is not freed during
+resolv.conf reading or other nameservers change.
+---
+ src/network.c | 40 +++++++++++++++++++++++++++++++---------
+ 1 file changed, 31 insertions(+), 9 deletions(-)
+
+diff --git a/src/network.c b/src/network.c
+index cf2f2e2..8152cac 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -1511,7 +1511,18 @@ void mark_servers(int flag)
+     }
+ }
+ 
+-static void server_domains_cleanup(void)
++static void server_domains_pre_cleanup(void)
++{
++  struct server_domain *sd;
++
++  /* reset removed last_server. */
++  for (sd = daemon->server_domains; sd; sd = sd->next)
++    if ((sd->flags & SERV_MARK) == 0 && sd->last_server &&
++	(sd->last_server->flags & SERV_MARK) != 0)
++      sd->last_server = NULL;
++}
++
++static void server_domains_post_cleanup(void)
+ {
+   struct server_domain *sd, *tmp, **up;
+ 
+@@ -1528,8 +1539,6 @@ static void server_domains_cleanup(void)
+        }
+       else {
+         up = &sd->next;
+-        if (sd->last_server && (sd->last_server->flags & SERV_MARK))
+-	  sd->last_server = NULL;
+       }
+     }
+ }
+@@ -1538,7 +1547,7 @@ void cleanup_servers(void)
+ {
+   struct server *serv, *tmp, **up;
+ 
+-  server_domains_cleanup();
++  server_domains_pre_cleanup();
+ 
+   /* unlink and free anything still marked. */
+   for (serv = daemon->servers, up = &daemon->servers; serv; serv = tmp) 
+@@ -1552,10 +1561,16 @@ void cleanup_servers(void)
+ 	   free(serv->domain);
+ 	 free(serv);
+        }
+-      else 
+-       up = &serv->next;
++      else
++       {
++         up = &serv->next;
++         if (serv->serv_domain && (serv->serv_domain->flags & SERV_MARK) != 0)
++           serv->serv_domain = NULL;
++       }
+     }
+ 
++  server_domains_post_cleanup();
++
+ #ifdef HAVE_LOOP
+   /* Now we have a new set of servers, test for loops. */
+   loop_send_probes();
+@@ -1699,7 +1714,11 @@ static void server_domain_check(struct server *serv)
+   if (sd)
+     sd->flags &= (~SERV_MARK); /* found domain, mark active */
+   else
+-    server_domain_new(serv);
++    {
++      sd = server_domain_find_domain(serv->domain);
++      if (!sd)
++	server_domain_new(serv);
++    }
+ }
+ 
+ void check_servers(void)
+@@ -1808,8 +1827,11 @@ void check_servers(void)
+ 	      else if (strlen(serv->domain) == 0)
+ 		s1 = _("default"), s2 = "";
+ 	      else
+-		s1 = _("domain"), s2 = serv->domain;
+-	      
++		{
++		  s1 = _("domain"), s2 = serv->domain;
++		  server_domain_check(serv);
++		}
++
+ 	      if (serv->flags & SERV_NO_ADDR)
+ 		{
+ 		  count--;
+-- 
+2.39.2
+

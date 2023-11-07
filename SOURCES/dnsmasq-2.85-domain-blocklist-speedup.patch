@@ -1,0 +1,106 @@
+From e046f32d882b6acf2090cbe8830c2dea6279aa8e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Fri, 9 Jun 2023 22:11:01 +0200
+Subject: [PATCH] Use serv_domain only for regular servers
+
+Do not try to use it for --local=/x/ or --address=/x/#. Some users use
+quite long list of blocks, which slows down walking trough domain list
+considerably. But searching by server_domain_find_domain is needed only
+for normal servers, which may store there last used server and number
+of recent forwarded queries. Local addresses overrides store there no
+useful information, avoid searching and adding new domains for such
+records.
+
+Would also speed up searching servers when blocklists are used, because
+only domains of servers are tested.
+
+Resolves: rhbz#2209031
+---
+ src/forward.c |  2 +-
+ src/option.c  | 15 +++++++++------
+ 2 files changed, 10 insertions(+), 7 deletions(-)
+
+diff --git a/src/forward.c b/src/forward.c
+index fffab7a..3d1227b 100644
+--- a/src/forward.c
++++ b/src/forward.c
+@@ -249,7 +249,7 @@ static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned
+       *type = 0; /* use normal servers for this domain */
+       *domain = NULL;
+     }
+-  if (serv_domain && !*serv_domain)
++  if (serv_domain && !*serv_domain && (*type & SERV_HAS_DOMAIN)==0)
+     *serv_domain = server_domain_find_domain(NULL);
+   return  flags;
+ }
+diff --git a/src/option.c b/src/option.c
+index e4e3182..25680c0 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -928,7 +928,7 @@ static struct server *add_rev4(struct in_addr addr, int msize)
+   p += sprintf(p, "in-addr.arpa");
+   
+   serv->flags = SERV_HAS_DOMAIN;
+-  server_domain_new(serv);
++  serv->serv_domain = NULL;
+   serv->next = daemon->servers;
+   daemon->servers = serv;
+ 
+@@ -953,7 +953,7 @@ static struct server *add_rev6(struct in6_addr *addr, int msize)
+   p += sprintf(p, "ip6.arpa");
+   
+   serv->flags = SERV_HAS_DOMAIN;
+-  server_domain_new(serv);
++  serv->serv_domain = NULL;
+   serv->next = daemon->servers;
+   daemon->servers = serv;
+   
+@@ -2294,7 +2294,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 				  memset(serv, 0, sizeof(struct server));
+ 				  serv->domain = d;
+ 				  serv->flags = SERV_HAS_DOMAIN | SERV_NO_ADDR;
+-				  server_domain_new(serv);
++				  serv->serv_domain = NULL;
+ 				  serv->next = daemon->servers;
+ 				  daemon->servers = serv;
+ 				}
+@@ -2338,7 +2338,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 				  memset(serv, 0, sizeof(struct server));
+ 				  serv->domain = d;
+ 				  serv->flags = SERV_HAS_DOMAIN | SERV_NO_ADDR;
+-				  server_domain_new(serv);
++				  serv->serv_domain = NULL;
+ 				  serv->next = daemon->servers;
+ 				  daemon->servers = serv;
+ 				}
+@@ -2591,7 +2591,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 		newlist = serv;
+ 		serv->domain = domain;
+ 		serv->flags = domain ? SERV_HAS_DOMAIN : SERV_FOR_NODOTS;
+-		server_domain_new(serv);
++		serv->serv_domain = NULL;
+ 		arg = end;
+ 		if (rebind)
+ 		  break;
+@@ -2639,6 +2639,8 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 	        server_list_free(newlist);
+ 	        ret_err(err);
+ 	      }
++	    if ((newlist->flags & SERV_LITERAL_ADDRESS)==0)
++	      server_domain_new(newlist);
+ 	  }
+ 	
+ 	serv = newlist;
+@@ -2682,7 +2684,8 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 	  serv = add_rev6(&addr6, size);
+ 	else
+ 	  ret_err(gen_err);
+- 
++
++        server_domain_new(serv);
+ 	string = parse_server(comma, &serv->addr, &serv->source_addr, serv->interface, &serv->flags);
+ 	
+ 	if (string)
+-- 
+2.40.1
+

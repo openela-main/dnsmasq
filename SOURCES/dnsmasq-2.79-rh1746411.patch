@@ -1,0 +1,22 @@
+From: Simon Kelley <simon@thekelleys.org.uk>
+Date: Wed, 14 Aug 2019 20:52:50 +0000 (+0100)
+Subject: Fix breakage of dhcp_lease_time utility.
+X-Git-Url: http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commitdiff_plain;h=225accd235a09413ca253e710d7d691a3475c523
+
+Fix breakage of dhcp_lease_time utility.
+---
+
+diff --git a/contrib/lease-tools/dhcp_lease_time.c b/contrib/lease-tools/dhcp_lease_time.c
+index 697d627..91edbfa 100644
+--- a/contrib/lease-tools/dhcp_lease_time.c
++++ b/contrib/lease-tools/dhcp_lease_time.c
+@@ -83,7 +83,7 @@ static unsigned char *option_find1(unsigned char *p, unsigned char *end, int opt
+           if (p >= end - 2)
+             return NULL; /* malformed packet */
+           opt_len = option_len(p);
+-          if (end - p >= (2 + opt_len))
++          if (end - p < (2 + opt_len))
+             return NULL; /* malformed packet */
+           if (*p == opt && opt_len >= minsize)
+             return p;
+

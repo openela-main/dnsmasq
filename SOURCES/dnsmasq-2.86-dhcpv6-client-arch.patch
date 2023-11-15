@@ -1,0 +1,28 @@
+From 9e2b6474f2074511c3911b2f777e8e8704782670 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Wed, 22 Sep 2021 14:54:01 +0200
+Subject: [PATCH] Add support for option6 names of RFC 5970
+
+Client Network Interface Identifier and Client System Architecture Type
+options were not understood by dnsmasq. Add it to supported option
+types.
+---
+ src/dhcp-common.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/dhcp-common.c b/src/dhcp-common.c
+index 224c4d6..368d686 100644
+--- a/src/dhcp-common.c
++++ b/src/dhcp-common.c
+@@ -645,6 +645,8 @@ static const struct opttab_t opttab6[] = {
+   { "ntp-server", 56,  0 },
+   { "bootfile-url", 59, OT_NAME },
+   { "bootfile-param", 60, OT_CSTRING },
++  { "client-arch", 61, 2 | OT_DEC }, /* RFC 5970 */
++  { "client-interface-id", 62, 1 | OT_DEC }, /* RFC 5970 */
+   { NULL, 0, 0 }
+ };
+ #endif
+-- 
+2.31.1
+

@@ -1,0 +1,473 @@
+From b15c92e5d793c9767591dbf8910bf3466aba92ee Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Mon, 19 Apr 2021 13:56:23 +0200
+Subject: [PATCH] Use load-balancing also for --server=/domains/
+
+Do not (yet) move servers to server_domain structure. Instead use
+separate server_domains to store just last_server and requests count and
+time.
+
+Introduces domain information duplicity, but minimizes required changes
+to daemon->servers usage.
+
+Optimize server domain record
+
+Set pointer to domain record when struct server is created. When
+searching for domain pointer, use this pointer to make it quick.
+---
+ src/dnsmasq.h |  18 +++++++--
+ src/forward.c |  54 ++++++++++++++++-----------
+ src/network.c | 101 ++++++++++++++++++++++++++++++++++++++++++++++----
+ src/option.c  |   5 +++
+ 4 files changed, 147 insertions(+), 31 deletions(-)
+
+diff --git a/src/dnsmasq.h b/src/dnsmasq.h
+index 4beef35..27ff86a 100644
+--- a/src/dnsmasq.h
++++ b/src/dnsmasq.h
+@@ -531,6 +531,17 @@ struct randfd_list {
+   struct randfd_list *next;
+ };
+ 
++/* contains domain specific set of servers.
++ * If domain is NULL, just normal servers. */
++struct server_domain {
++  char *domain;
++  struct server *last_server;
++  time_t forwardtime;
++  int forwardcount;
++  unsigned int flags; /* server.flags alternative */
++  struct server_domain *next;
++};
++
+ struct server {
+   union mysockaddr addr, source_addr;
+   char interface[IF_NAMESIZE+1];
+@@ -543,6 +554,7 @@ struct server {
+ #ifdef HAVE_LOOP
+   u32 uid;
+ #endif
++  struct server_domain *serv_domain;
+   struct server *next; 
+ };
+ 
+@@ -995,6 +1007,7 @@ extern struct daemon {
+   struct iname *if_names, *if_addrs, *if_except, *dhcp_except, *auth_peers, *tftp_interfaces;
+   struct bogus_addr *bogus_addr, *ignore_addr;
+   struct server *servers;
++  struct server_domain *server_domains;
+   struct ipsets *ipsets;
+   int log_fac; /* log facility */
+   char *log_file; /* optional log file */
+@@ -1061,9 +1074,6 @@ extern struct daemon {
+   struct serverfd *sfds;
+   struct irec *interfaces;
+   struct listener *listeners;
+-  struct server *last_server;
+-  time_t forwardtime;
+-  int forwardcount;
+   struct server *srv_save; /* Used for resend on DoD */
+   size_t packet_len;       /*      "        "        */
+   int    fd_save;          /*      "        "        */
+@@ -1319,6 +1329,8 @@ int loopback_exception(int fd, int family, struct all_addr *addr, char *name);
+ int label_exception(int index, int family, struct all_addr *addr);
+ int fix_fd(int fd);
+ int tcp_interface(int fd, int af);
++struct server_domain *server_domain_find_domain(const char *domain);
++struct server_domain *server_domain_new(struct server *serv);
+ #ifdef HAVE_IPV6
+ int set_ipv6pktinfo(int fd);
+ #endif
+diff --git a/src/forward.c b/src/forward.c
+index 11e0310..d8e845a 100644
+--- a/src/forward.c
++++ b/src/forward.c
+@@ -109,7 +109,8 @@ int send_from(int fd, int nowild, char *packet, size_t len,
+ }
+           
+ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigned int qtype,
+-				   char *qdomain, int *type, char **domain, int *norebind)
++				   char *qdomain, int *type, char **domain, int *norebind,
++				   struct server_domain **serv_domain)
+ 			      
+ {
+   /* If the query ends in the domain in one of our servers, set
+@@ -121,6 +122,9 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
+   struct server *serv;
+   unsigned int flags = 0;
+   
++  if (serv_domain)
++    *serv_domain = NULL;
++
+   for (serv = daemon->servers; serv; serv=serv->next)
+     if (qtype == F_DNSSECOK && !(serv->flags & SERV_DO_DNSSEC))
+       continue;
+@@ -181,6 +185,8 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
+ 		  {
+ 		    *type = serv->flags & (SERV_HAS_DOMAIN | SERV_USE_RESOLV | SERV_NO_REBIND | SERV_DO_DNSSEC);
+ 		    *domain = serv->domain;
++		    if (serv_domain)
++		      *serv_domain = serv->serv_domain;
+ 		    matchlen = domainlen;
+ 		    if (serv->flags & SERV_NO_ADDR)
+ 		      flags = F_NXDOMAIN;
+@@ -228,6 +234,8 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp, unsigne
+       *type = 0; /* use normal servers for this domain */
+       *domain = NULL;
+     }
++  if (serv_domain && !*serv_domain)
++    *serv_domain = server_domain_find_domain(*domain);
+   return  flags;
+ }
+ 
+@@ -242,6 +250,7 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
+   unsigned int flags = 0;
+   unsigned int fwd_flags = 0;
+   struct server *start = NULL;
++  struct server_domain *sd = NULL;
+   void *hash = hash_questions(header, plen, daemon->namebuff);
+ #ifdef HAVE_DNSSEC
+   int do_dnssec = 0;
+@@ -313,8 +322,10 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
+       forward->sentto->failed_queries++;
+       if (!option_bool(OPT_ORDER))
+ 	{
++	  sd = forward->sentto->serv_domain;
+ 	  forward->forwardall = 1;
+-	  daemon->last_server = NULL;
++	  if (sd)
++	    sd->last_server = NULL;
+ 	}
+       type = forward->sentto->flags & SERV_TYPE;
+ #ifdef HAVE_DNSSEC
+@@ -363,10 +374,10 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
+ 	  
+ 	  return 1;
+ 	}
+-	
++
+       if (gotname)
+-	flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind);
+-      
++	flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind, &sd);
++
+ #ifdef HAVE_DNSSEC
+       do_dnssec = type & SERV_DO_DNSSEC;
+ #endif
+@@ -407,18 +418,18 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
+ 	     always try all the available servers,
+ 	     otherwise, use the one last known to work. */
+ 	  
+-	  if (type == 0)
++	  if (sd)
+ 	    {
+ 	      if (option_bool(OPT_ORDER))
+ 		start = daemon->servers;
+-	      else if (!(start = daemon->last_server) ||
+-		       daemon->forwardcount++ > FORWARD_TEST ||
+-		       difftime(now, daemon->forwardtime) > FORWARD_TIME)
++	      else if (!(start = sd->last_server) ||
++		       sd->forwardcount++ > FORWARD_TEST ||
++		       difftime(now, sd->forwardtime) > FORWARD_TIME)
+ 		{
+ 		  start = daemon->servers;
+ 		  forward->forwardall = 1;
+-		  daemon->forwardcount = 0;
+-		  daemon->forwardtime = now;
++		  sd->forwardcount = 0;
++		  sd->forwardtime = now;
+ 		}
+ 	    }
+ 	  else
+@@ -758,6 +769,7 @@ void reply_query(int fd, time_t now)
+   size_t nn;
+   struct server *server;
+   void *hash;
++  struct server_domain *sd;
+ 
+   /* packet buffer overwritten */
+   daemon->srv_save = NULL;
+@@ -845,7 +857,8 @@ void reply_query(int fd, time_t now)
+     }   
+    
+   server = forward->sentto;
+-  if ((forward->sentto->flags & SERV_TYPE) == 0)
++  sd = server->serv_domain;
++  if (sd)
+     {
+       if (RCODE(header) == REFUSED)
+ 	server = NULL;
+@@ -863,7 +876,7 @@ void reply_query(int fd, time_t now)
+ 	      }
+ 	} 
+       if (!option_bool(OPT_ALL_SERVERS))
+-	daemon->last_server = server;
++	sd->last_server = server;
+     }
+  
+   /* We tried resending to this server with a smaller maximum size and got an answer.
+@@ -964,7 +977,7 @@ void reply_query(int fd, time_t now)
+ 		      /* Find server to forward to. This will normally be the 
+ 			 same as for the original query, but may be another if
+ 			 servers for domains are involved. */		      
+-		      if (search_servers(now, NULL, F_DNSSECOK, daemon->keyname, &type, &domain, NULL) == 0)
++		      if (search_servers(now, NULL, F_DNSSECOK, daemon->keyname, &type, &domain, NULL, &sd) == 0)
+ 			{
+ 			  struct server *start = server, *new_server = NULL;
+ 			  
+@@ -1541,7 +1554,7 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
+       /* Find server to forward to. This will normally be the 
+ 	 same as for the original query, but may be another if
+ 	 servers for domains are involved. */		      
+-      if (search_servers(now, NULL, F_DNSSECOK, keyname, &type, &domain, NULL) != 0)
++      if (search_servers(now, NULL, F_DNSSECOK, keyname, &type, &domain, NULL, NULL) != 0)
+ 	{
+ 	  new_status = STAT_ABANDONED;
+ 	  break;
+@@ -1814,11 +1827,12 @@ unsigned char *tcp_request(int confd, time_t now,
+ 	      int type = SERV_DO_DNSSEC;
+ 	      char *domain = NULL;
+ 	      unsigned char *oph = find_pseudoheader(header, size, NULL, NULL, NULL, NULL);
++	      struct server_domain *sd = NULL;
+ 
+ 	      size = add_edns0_config(header, size, ((unsigned char *) header) + 65536, &peer_addr, now, &check_subnet);
+ 
+ 	      if (gotname)
+-		flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind);
++		flags = search_servers(now, &addrp, gotname, daemon->namebuff, &type, &domain, &norebind, &sd);
+ 
+ #ifdef HAVE_DNSSEC
+ 	      if (option_bool(OPT_DNSSEC_VALID) && (type & SERV_DO_DNSSEC))
+@@ -1839,10 +1853,10 @@ unsigned char *tcp_request(int confd, time_t now,
+ 
+ 	      type &= ~SERV_DO_DNSSEC;
+ 	      
+-	      if (type != 0  || option_bool(OPT_ORDER) || !daemon->last_server)
++	      if (!sd  || option_bool(OPT_ORDER) || !sd->last_server)
+ 		last_server = daemon->servers;
+ 	      else
+-		last_server = daemon->last_server;
++		last_server = sd->last_server;
+ 	      
+ 	      if (!flags && last_server)
+ 		{
+@@ -2439,9 +2453,7 @@ void server_gone(struct server *server)
+     if (daemon->randomsocks[i].refcount != 0 && daemon->randomsocks[i].serv == server)
+       daemon->randomsocks[i].serv = NULL;
+ 
+-  if (daemon->last_server == server)
+-    daemon->last_server = NULL;
+-
++  /* last_server cleared by server_domain_cleanup */
+   if (daemon->srv_save == server)
+     daemon->srv_save = NULL;
+ }
+diff --git a/src/network.c b/src/network.c
+index 4eda1fd..4d140bb 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -1428,6 +1428,29 @@ void cleanup_servers(void)
+ #endif
+ }
+ 
++void server_domains_cleanup(void)
++{
++  struct server_domain *sd, *tmp, **up;
++
++  /* unlink and free anything still marked. */
++  for (up = &daemon->server_domains, sd=*up; sd; sd = tmp)
++    {
++      tmp = sd->next;
++      if (sd->flags & SERV_MARK)
++       {
++         *up = sd->next;
++         if (sd->domain)
++	   free(sd->domain);
++	 free(sd);
++       }
++      else {
++        up = &sd->next;
++        if (sd->last_server && (sd->last_server->flags & SERV_MARK))
++	  sd->last_server = NULL;
++      }
++    }
++}
++
+ void add_update_server(int flags,
+ 		       union mysockaddr *addr,
+ 		       union mysockaddr *source_addr,
+@@ -1507,10 +1530,72 @@ void add_update_server(int flags,
+     }
+ }
+ 
++static const char *server_get_domain(const struct server *serv)
++{
++  const char *domain = serv->domain;
++
++  if (serv->flags & SERV_HAS_DOMAIN)
++		  /* .example.com is valid */
++    while (*domain == '.')
++      domain++;
++
++  return domain;
++}
++
++struct server_domain *server_domain_find_domain(const char *domain)
++{
++  struct server_domain *sd;
++  for (sd = daemon->server_domains; sd; sd = sd->next)
++    if ((!domain && sd->domain == domain) || (domain && sd->domain && hostname_isequal(domain, sd->domain)))
++      return sd;
++  return NULL;
++}
++
++/**< Test structure has already set domain pointer.
++ *
++ * If not, create a new record. */
++struct server_domain *server_domain_new(struct server *serv)
++{
++  struct server_domain *sd;
++
++  if ((sd = whine_malloc(sizeof(struct server_domain))))
++    {
++      const char *domain = server_get_domain(serv);
++
++      /* Ensure all serv->domain values have own record in server_domain.
++       * Add a new record. */
++      if (domain)
++	{
++	  size_t len = strlen(domain)+1;
++	  sd->domain = whine_malloc(len);
++	  if (sd->domain)
++	    memcpy(sd->domain, domain, len);
++	}
++      sd->next = daemon->server_domains;
++      serv->serv_domain = sd;
++      daemon->server_domains = sd;
++    }
++  return sd;
++}
++
++/**< Test structure has already set domain pointer.
++ *
++ * If not, create a new record. */
++static void server_domain_check(struct server *serv)
++{
++  struct server_domain *sd = serv->serv_domain;
++
++  if (sd)
++    sd->flags &= (~SERV_MARK); /* found domain, mark active */
++  else
++    server_domain_new(serv);
++}
++
+ void check_servers(void)
+ {
+   struct irec *iface;
+   struct server *serv;
++  struct server_domain *sd;
+   struct serverfd *sfd, *tmp, **up;
+   int port = 0, count;
+   int locals = 0;
+@@ -1522,10 +1607,14 @@ void check_servers(void)
+   for (sfd = daemon->sfds; sfd; sfd = sfd->next)
+     sfd->used = 0;
+ 
++  for (sd = daemon->server_domains; sd; sd = sd->next)
++    sd->flags |= SERV_MARK;
++
+   for (count = 0, serv = daemon->servers; serv; serv = serv->next)
+     {
+       if (!(serv->flags & (SERV_LITERAL_ADDRESS | SERV_NO_ADDR | SERV_USE_RESOLV | SERV_NO_REBIND)))
+ 	{
++
+ 	  /* Init edns_pktsz for newly created server records. */
+ 	  if (serv->edns_pktsz == 0)
+ 	    serv->edns_pktsz = daemon->edns_pktsz;
+@@ -1541,12 +1630,8 @@ void check_servers(void)
+ 	      if (serv->flags & SERV_HAS_DOMAIN)
+ 		{
+ 		  struct ds_config *ds;
+-		  char *domain = serv->domain;
+-		  
+-		  /* .example.com is valid */
+-		  while (*domain == '.')
+-		    domain++;
+-		  
++		  const char *domain = server_get_domain(serv);
++
+ 		  for (ds = daemon->ds; ds; ds = ds->next)
+ 		    if (ds->name[0] != 0 && hostname_isequal(domain, ds->name))
+ 		      break;
+@@ -1556,7 +1641,6 @@ void check_servers(void)
+ 		}
+ 	    }
+ #endif
+-
+ 	  port = prettyprint_addr(&serv->addr, daemon->namebuff);
+ 	  
+ 	  /* 0.0.0.0 is nothing, the stack treats it like 127.0.0.1 */
+@@ -1591,6 +1675,8 @@ void check_servers(void)
+ 	  
+ 	  if (serv->sfd)
+ 	    serv->sfd->used = 1;
++
++	  server_domain_check(serv);
+ 	}
+       
+       if (!(serv->flags & SERV_NO_REBIND) && !(serv->flags & SERV_LITERAL_ADDRESS))
+@@ -1653,6 +1739,7 @@ void check_servers(void)
+ 	up = &sfd->next;
+     }
+   
++  server_domains_cleanup();
+   cleanup_servers();
+ }
+ 
+diff --git a/src/option.c b/src/option.c
+index abc5a48..6fa7bbd 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -906,6 +906,7 @@ static struct server *add_rev4(struct in_addr addr, int msize)
+   p += sprintf(p, "in-addr.arpa");
+   
+   serv->flags = SERV_HAS_DOMAIN;
++  server_domain_new(serv);
+   serv->next = daemon->servers;
+   daemon->servers = serv;
+ 
+@@ -930,6 +931,7 @@ static struct server *add_rev6(struct in6_addr *addr, int msize)
+   p += sprintf(p, "ip6.arpa");
+   
+   serv->flags = SERV_HAS_DOMAIN;
++  server_domain_new(serv);
+   serv->next = daemon->servers;
+   daemon->servers = serv;
+   
+@@ -2231,6 +2233,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 				  memset(serv, 0, sizeof(struct server));
+ 				  serv->domain = d;
+ 				  serv->flags = SERV_HAS_DOMAIN | SERV_NO_ADDR;
++				  server_domain_new(serv);
+ 				  serv->next = daemon->servers;
+ 				  daemon->servers = serv;
+ 				}
+@@ -2275,6 +2278,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 				  memset(serv, 0, sizeof(struct server));
+ 				  serv->domain = d;
+ 				  serv->flags = SERV_HAS_DOMAIN | SERV_NO_ADDR;
++				  server_domain_new(serv);
+ 				  serv->next = daemon->servers;
+ 				  daemon->servers = serv;
+ 				}
+@@ -2525,6 +2529,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 		newlist = serv;
+ 		serv->domain = domain;
+ 		serv->flags = domain ? SERV_HAS_DOMAIN : SERV_FOR_NODOTS;
++		server_domain_new(serv);
+ 		arg = end;
+ 		if (rebind)
+ 		  break;
+-- 
+2.34.1
+

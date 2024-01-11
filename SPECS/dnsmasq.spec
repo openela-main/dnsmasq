@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        6%{?extraversion:.%{extraversion}}%{?dist}
+Release:        14%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -51,6 +51,24 @@ Patch6:         dnsmasq-2.86-dhcpv6-client-arch.patch
 Patch7:         dnsmasq-2.87-CVE-2022-0934.patch
 # Downstream only patch; fixes Patch4 change
 Patch8:         dnsmasq-2.79-server-domain-fixup.patch
+# https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;h=eb92fb32b746f2104b0f370b5b295bb8dd4bd5e5
+Patch9:         dnsmasq-2.89-edns0-size.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2186481
+# Fixes issue in Patch4
+Patch10:        dnsmasq-2.85-serv_domain-rh2186481.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2182342
+# Another issue in Patch4
+Patch11:        dnsmasq-2.85-search_servers-rhbz2182342.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2186481
+# complements patch10
+Patch12:        dnsmasq-2.85-serv_domain-rh2186481-2.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=1f8f78a49b8fd6b2862a3882053b1c6e6e111e5c
+Patch13:        dnsmasq-2.87-log-root-writeable.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2209031
+# complements patch12
+Patch14:        dnsmasq-2.85-domain-blocklist-speedup.patch
+# https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;h=9bbf098a970c9e5fa251939208e25fb21064d1be
+Patch15:        dnsmasq-2.87-coverity-forward-cache.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -194,6 +212,30 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Fri Jul 28 2023 Petr Menšík <pemensik@redhat.com> - 2.85-14
+- Backport Coverity fix to hide detected issue (#2156789)
+
+* Thu Jul 20 2023 Petr Menšík <pemensik@redhat.com> - 2.85-13
+- Rebuild with modified gating settings
+
+* Wed Jun 14 2023 Petr Menšík <pemensik@redhat.com> - 2.85-12
+- Make create logfile writeable by root (#2156789)
+
+* Fri Jun 09 2023 Petr Menšík <pemensik@redhat.com> - 2.85-11
+- Do not create and search --local and --address=/x/# domains (#2209031)
+
+* Wed May 10 2023 Petr Menšík <pemensik@redhat.com> - 2.85-10
+- Fix also dynamically set resolvers over dbus (#2186481)
+
+* Fri May 05 2023 Petr Menšík <pemensik@redhat.com> - 2.85-9
+- Properly initialize domain parameter in dnssec mode (#2182342)
+
+* Fri Apr 21 2023 Petr Menšík <pemensik@redhat.com> - 2.85-8
+- Correct possible crashes when server=/example.net/# is used (#2188712)
+
+* Mon Apr 03 2023 Petr Menšík <pemensik@redhat.com> - 2.85-7
+- Limit offered EDNS0 size 1232 (CVE-2023-28450)
+
 * Thu Jan 26 2023 Petr Menšík <pemensik@redhat.com> - 2.85-6
 - Use upstream change for CVE-2022-0934 (#2126586)
 

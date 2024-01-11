@@ -1,0 +1,50 @@
+From d75a9691edaa2b2efd8b51f2de492c62cb57c629 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Fri, 5 May 2023 17:51:56 +0200
+Subject: [PATCH] Ensure search_servers domain is set on dnssec
+
+When dnssec validation is enabled the domain variable used when fetching
+dnssec key or domain were not properly initialized always. It were read
+anyway inside search_servers. Because it is changed only sometime, do
+not use its value on the end of function. domain can be NULL only at
+that point, use that value right away.
+
+Include also TCP.
+---
+ src/forward.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/forward.c b/src/forward.c
+index b09dc96..fffab7a 100644
+--- a/src/forward.c
++++ b/src/forward.c
+@@ -250,7 +250,7 @@ static unsigned int search_servers(time_t now, union all_addr **addrpp, unsigned
+       *domain = NULL;
+     }
+   if (serv_domain && !*serv_domain)
+-    *serv_domain = server_domain_find_domain(*domain);
++    *serv_domain = server_domain_find_domain(NULL);
+   return  flags;
+ }
+ 
+@@ -1097,7 +1097,7 @@ void reply_query(int fd, time_t now)
+ 		    {
+ 		      int querytype, fd, type = SERV_DO_DNSSEC;
+ 		      struct frec *next = new->next;
+-		      char *domain;
++		      char *domain = NULL;
+ 		      
+ 		      *new = *forward; /* copy everything, then overwrite */
+ 		      new->next = next;
+@@ -1633,7 +1633,7 @@ static int tcp_key_recurse(time_t now, int status, struct dns_header *header, si
+   while (1)
+     {
+       int type = SERV_DO_DNSSEC;
+-      char *domain;
++      char *domain = NULL;
+       size_t m; 
+       unsigned char c1, c2;
+       struct server *firstsendto = NULL;
+-- 
+2.40.1
+

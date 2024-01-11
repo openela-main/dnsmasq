@@ -1,0 +1,83 @@
+From 4650d0aef20db4b7e129895ffcb93ca4609e6347 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20Men=C5=A1=C3=ADk?= <pemensik@redhat.com>
+Date: Wed, 10 May 2023 12:57:17 +0200
+Subject: [PATCH] fixup! Correct releasing of serv_domain
+
+---
+ src/dnsmasq.h |  2 +-
+ src/network.c | 20 +++++++++++---------
+ 2 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/src/dnsmasq.h b/src/dnsmasq.h
+index b6dcc50..c62c3d0 100644
+--- a/src/dnsmasq.h
++++ b/src/dnsmasq.h
+@@ -1405,7 +1405,7 @@ int fix_fd(int fd);
+ int tcp_interface(int fd, int af);
+ int set_ipv6pktinfo(int fd);
+ struct server_domain *server_domain_find_domain(const char *domain);
+-struct server_domain *server_domain_new(struct server *serv);
++void server_domain_new(struct server *serv);
+ #ifdef HAVE_DHCP6
+ void join_multicast(int dienow);
+ #endif
+diff --git a/src/network.c b/src/network.c
+index 8152cac..e42220c 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -1653,6 +1653,7 @@ void add_update_server(int flags,
+ 	serv->addr = *addr;
+       if (source_addr)
+ 	serv->source_addr = *source_addr;
++      server_domain_new(serv);
+     }
+ }
+ 
+@@ -1680,14 +1681,20 @@ struct server_domain *server_domain_find_domain(const char *domain)
+ /**< Test structure has already set domain pointer.
+  *
+  * If not, create a new record. */
+-struct server_domain *server_domain_new(struct server *serv)
++void server_domain_new(struct server *serv)
+ {
+   struct server_domain *sd;
++  const char *domain = server_get_domain(serv);
+ 
+-  if ((sd = whine_malloc(sizeof(struct server_domain))))
++  sd = server_domain_find_domain(domain);
++  if (sd)
+     {
+-      const char *domain = server_get_domain(serv);
++      serv->serv_domain = sd;
++      return;
++    }
+ 
++  if ((sd = whine_malloc(sizeof(struct server_domain))))
++    {
+       /* Ensure all serv->domain values have own record in server_domain.
+        * Add a new record. */
+       if (domain)
+@@ -1701,7 +1708,6 @@ struct server_domain *server_domain_new(struct server *serv)
+       serv->serv_domain = sd;
+       daemon->server_domains = sd;
+     }
+-  return sd;
+ }
+ 
+ /**< Test structure has already set domain pointer.
+@@ -1714,11 +1720,7 @@ static void server_domain_check(struct server *serv)
+   if (sd)
+     sd->flags &= (~SERV_MARK); /* found domain, mark active */
+   else
+-    {
+-      sd = server_domain_find_domain(serv->domain);
+-      if (!sd)
+-	server_domain_new(serv);
+-    }
++    server_domain_new(serv);
+ }
+ 
+ void check_servers(void)
+-- 
+2.40.1
+

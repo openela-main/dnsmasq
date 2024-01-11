@@ -1,0 +1,99 @@
+From 4c5cbdfb82e668268a5f3713fe119fb077667c8e Mon Sep 17 00:00:00 2001
+From: rpm-build <rpm-build>
+Date: Mon, 22 Aug 2022 21:59:42 +0200
+Subject: [PATCH] Ensure also server_domains_cleanup is called always
+
+Fixes issue in patch dnsmasq-2.79-server-domain-rh1919894.patch.
+
+When /etc/resolv.conf is changed, dnsmasq reloads used servers. But it
+does not call cleanup of server domains in this case. It might cause
+serv_domain->last_server to become non-null, but pointing released
+server. Ensure it is checked before any cleanup_servers() action always
+and from all other places, like dbus setting.
+
+Caused unending loop in forward_query function, rhbz#2106361.
+---
+ src/network.c | 49 +++++++++++++++++++++++++------------------------
+ 1 file changed, 25 insertions(+), 24 deletions(-)
+
+diff --git a/src/network.c b/src/network.c
+index 4d140bb..96668fb 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -1402,10 +1402,35 @@ void mark_servers(int flag)
+     }
+ }
+ 
++static void server_domains_cleanup(void)
++{
++  struct server_domain *sd, *tmp, **up;
++
++  /* unlink and free anything still marked. */
++  for (up = &daemon->server_domains, sd=*up; sd; sd = tmp)
++    {
++      tmp = sd->next;
++      if (sd->flags & SERV_MARK)
++       {
++         *up = sd->next;
++         if (sd->domain)
++	   free(sd->domain);
++	 free(sd);
++       }
++      else {
++        up = &sd->next;
++        if (sd->last_server && (sd->last_server->flags & SERV_MARK))
++	  sd->last_server = NULL;
++      }
++    }
++}
++
+ void cleanup_servers(void)
+ {
+   struct server *serv, *tmp, **up;
+ 
++  server_domains_cleanup();
++
+   /* unlink and free anything still marked. */
+   for (serv = daemon->servers, up = &daemon->servers; serv; serv = tmp) 
+     {
+@@ -1428,29 +1453,6 @@ void cleanup_servers(void)
+ #endif
+ }
+ 
+-void server_domains_cleanup(void)
+-{
+-  struct server_domain *sd, *tmp, **up;
+-
+-  /* unlink and free anything still marked. */
+-  for (up = &daemon->server_domains, sd=*up; sd; sd = tmp)
+-    {
+-      tmp = sd->next;
+-      if (sd->flags & SERV_MARK)
+-       {
+-         *up = sd->next;
+-         if (sd->domain)
+-	   free(sd->domain);
+-	 free(sd);
+-       }
+-      else {
+-        up = &sd->next;
+-        if (sd->last_server && (sd->last_server->flags & SERV_MARK))
+-	  sd->last_server = NULL;
+-      }
+-    }
+-}
+-
+ void add_update_server(int flags,
+ 		       union mysockaddr *addr,
+ 		       union mysockaddr *source_addr,
+@@ -1739,7 +1741,6 @@ void check_servers(void)
+ 	up = &sfd->next;
+     }
+   
+-  server_domains_cleanup();
+   cleanup_servers();
+ }
+ 
+-- 
+2.37.2
+

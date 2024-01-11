@@ -1,0 +1,237 @@
+From 5010c42c47b7b5a3d68d83369d6c17ed0bc11cff Mon Sep 17 00:00:00 2001
+From: Petr Mensik <pemensik@redhat.com>
+Date: Wed, 17 Feb 2021 11:47:28 +0100
+Subject: [PATCH] Correct occasional --bind-dynamic synchronization break
+
+Request only one re-read of addresses and/or routes
+
+Previous implementation re-reads systemd addresses exactly the same
+number of time equal number of notifications received.
+This is not necessary, we need just notification of change, then re-read
+the current state and adapt listeners. Repeated re-reading slows netlink
+processing and highers CPU usage on mass interface changes.
+
+Continue reading multicast events from netlink, even when ENOBUFS
+arrive. Broadcasts are not trusted anyway and refresh would be done in
+iface_enumerate. Save queued events sent again.
+
+Remove sleeping on netlink ENOBUFS
+
+With reduced number of written events netlink should receive ENOBUFS
+rarely. It does not make sense to wait if it is received. It is just a
+signal some packets got missing. Fast reading all pending packets is required,
+seq checking ensures it already. Finishes changes by
+commit 1d07667ac77c55b9de56b1b2c385167e0e0ec27a.
+
+Move restart from iface_enumerate to enumerate_interfaces
+
+When ENOBUFS is received, restart of reading addresses is done. But
+previously found addresses might not have been found this time. In order
+to catch this, restart both IPv4 and IPv6 enumeration with clearing
+found interfaces first. It should deliver up-to-date state also after
+ENOBUFS.
+
+Read all netlink messages before netlink restart
+
+Before writing again into netlink socket, try fetching all pending
+messages. They would be ignored, only might trigger new address
+synchronization. Should ensure new try has better chance to succeed.
+
+Request sending ENOBUFS again
+
+ENOBUFS error handling was improved. Netlink is correctly drained before
+sending a new request again. It seems ENOBUFS supression is no longer
+necessary or wanted. Let kernel tell us when it failed and handle it a
+good way.
+---
+ src/netlink.c | 67 ++++++++++++++++++++++++++++++++++++---------------
+ src/network.c | 11 +++++++--
+ 2 files changed, 57 insertions(+), 21 deletions(-)
+
+diff --git a/src/netlink.c b/src/netlink.c
+index ac1a1c5..f95f3e8 100644
+--- a/src/netlink.c
++++ b/src/netlink.c
+@@ -32,13 +32,21 @@
+ 
+ #ifndef NDA_RTA
+ #  define NDA_RTA(r) ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg)))) 
+-#endif 
++#endif
++
++/* Used to request refresh of addresses or routes just once,
++ * when multiple changes might be announced. */
++enum async_states {
++  STATE_NEWADDR = (1 << 0),
++  STATE_NEWROUTE = (1 << 1),
++};
+ 
+ 
+ static struct iovec iov;
+ static u32 netlink_pid;
+ 
+-static void nl_async(struct nlmsghdr *h);
++static unsigned nl_async(struct nlmsghdr *h, unsigned state);
++static void nl_multicast_state(unsigned state);
+ 
+ void netlink_init(void)
+ {
+@@ -135,7 +143,9 @@ static ssize_t netlink_recv(void)
+   
+ 
+ /* family = AF_UNSPEC finds ARP table entries.
+-   family = AF_LOCAL finds MAC addresses. */
++   family = AF_LOCAL finds MAC addresses.
++   returns 0 on failure, 1 on success, -1 when restart is required
++*/
+ int iface_enumerate(int family, void *parm, int (*callback)())
+ {
+   struct sockaddr_nl addr;
+@@ -143,6 +153,7 @@ int iface_enumerate(int family, void *parm, int (*callback)())
+   ssize_t len;
+   static unsigned int seq = 0;
+   int callback_ok = 1;
++  unsigned state = 0;
+ 
+   struct {
+     struct nlmsghdr nlh;
+@@ -154,7 +165,6 @@ int iface_enumerate(int family, void *parm, int (*callback)())
+   addr.nl_groups = 0;
+   addr.nl_pid = 0; /* address to kernel */
+  
+- again: 
+   if (family == AF_UNSPEC)
+     req.nlh.nlmsg_type = RTM_GETNEIGH;
+   else if (family == AF_LOCAL)
+@@ -181,8 +191,8 @@ int iface_enumerate(int family, void *parm, int (*callback)())
+ 	{
+ 	  if (errno == ENOBUFS)
+ 	    {
+-	      sleep(1);
+-	      goto again;
++	      nl_multicast_state(state);
++	      return -1;
+ 	    }
+ 	  return 0;
+ 	}
+@@ -191,7 +201,7 @@ int iface_enumerate(int family, void *parm, int (*callback)())
+ 	if (h->nlmsg_pid != netlink_pid || h->nlmsg_type == NLMSG_ERROR)
+ 	  {
+ 	    /* May be multicast arriving async */
+-	    nl_async(h);
++	    state = nl_async(h, state);
+ 	  }
+ 	else if (h->nlmsg_seq != seq)
+ 	  {
+@@ -327,26 +337,36 @@ int iface_enumerate(int family, void *parm, int (*callback)())
+     }
+ }
+ 
+-void netlink_multicast(void)
++static void nl_multicast_state(unsigned state)
+ {
+   ssize_t len;
+   struct nlmsghdr *h;
+   int flags;
+-  
+-  /* don't risk blocking reading netlink messages here. */
++
+   if ((flags = fcntl(daemon->netlinkfd, F_GETFL)) == -1 ||
+       fcntl(daemon->netlinkfd, F_SETFL, flags | O_NONBLOCK) == -1) 
+     return;
++
++  do {
++    /* don't risk blocking reading netlink messages here. */
++    while ((len = netlink_recv()) != -1)
+   
+-  if ((len = netlink_recv()) != -1)
+-    for (h = (struct nlmsghdr *)iov.iov_base; NLMSG_OK(h, (size_t)len); h = NLMSG_NEXT(h, len))
+-      nl_async(h);
+-  
++      for (h = (struct nlmsghdr *)iov.iov_base; NLMSG_OK(h, (size_t)len); h = NLMSG_NEXT(h, len))
++	state = nl_async(h, state);
++  } while (errno == ENOBUFS);
++
+   /* restore non-blocking status */
+   fcntl(daemon->netlinkfd, F_SETFL, flags);
+ }
+ 
+-static void nl_async(struct nlmsghdr *h)
++void netlink_multicast(void)
++{
++  unsigned state = 0;
++  nl_multicast_state(state);
++}
++
++
++static unsigned nl_async(struct nlmsghdr *h, unsigned state)
+ {
+   if (h->nlmsg_type == NLMSG_ERROR)
+     {
+@@ -354,7 +374,8 @@ static void nl_async(struct nlmsghdr *h)
+       if (err->error != 0)
+ 	my_syslog(LOG_ERR, _("netlink returns error: %s"), strerror(-(err->error)));
+     }
+-  else if (h->nlmsg_pid == 0 && h->nlmsg_type == RTM_NEWROUTE) 
++  else if (h->nlmsg_pid == 0 && h->nlmsg_type == RTM_NEWROUTE &&
++	   (state & STATE_NEWROUTE)==0)
+     {
+       /* We arrange to receive netlink multicast messages whenever the network route is added.
+ 	 If this happens and we still have a DNS packet in the buffer, we re-send it.
+@@ -366,10 +387,18 @@ static void nl_async(struct nlmsghdr *h)
+       if (rtm->rtm_type == RTN_UNICAST && rtm->rtm_scope == RT_SCOPE_LINK &&
+ 	  (rtm->rtm_table == RT_TABLE_MAIN ||
+ 	   rtm->rtm_table == RT_TABLE_LOCAL))
+-	queue_event(EVENT_NEWROUTE);
++	{
++	  queue_event(EVENT_NEWROUTE);
++	  state |= STATE_NEWROUTE;
++	}
++    }
++  else if ((h->nlmsg_type == RTM_NEWADDR || h->nlmsg_type == RTM_DELADDR) &&
++	   (state & STATE_NEWADDR)==0)
++    {
++      queue_event(EVENT_NEWADDR);
++      state |= STATE_NEWADDR;
+     }
+-  else if (h->nlmsg_type == RTM_NEWADDR || h->nlmsg_type == RTM_DELADDR) 
+-    queue_event(EVENT_NEWADDR);
++  return state;
+ }
+ #endif
+ 
+diff --git a/src/network.c b/src/network.c
+index c6e7d89..47caf38 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -656,7 +656,8 @@ int enumerate_interfaces(int reset)
+ 
+   if ((param.fd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
+     return 0;
+- 
++
++again:
+   /* Mark interfaces for garbage collection */
+   for (iface = daemon->interfaces; iface; iface = iface->next) 
+     iface->found = 0;
+@@ -709,10 +710,16 @@ int enumerate_interfaces(int reset)
+   
+ #ifdef HAVE_IPV6
+   ret = iface_enumerate(AF_INET6, &param, iface_allowed_v6);
++  if (ret < 0)
++    goto again;
+ #endif
+ 
+   if (ret)
+-    ret = iface_enumerate(AF_INET, &param, iface_allowed_v4); 
++    {
++      ret = iface_enumerate(AF_INET, &param, iface_allowed_v4);
++      if (ret < 0)
++	goto again;
++    }
+  
+   errsave = errno;
+   close(param.fd);
+-- 
+2.26.2
+

@@ -13,7 +13,7 @@
 
 Name:           dnsmasq
 Version:        2.79
-Release:        26%{?extraversion:.%{extraversion}}%{?dist}
+Release:        31%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -83,6 +83,19 @@ Patch37:        dnsmasq-2.81-linux-SIOCGSTAMP.patch
 Patch38:        dnsmasq-2.79-server-domain-fixup.patch
 # https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;h=f8c77edbdffb8ada7753ea9fa104f0f6da70cfe3
 Patch39:        dnsmasq-2.81-dhcpv6-relay-link-address.patch
+# https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;h=eb92fb32b746f2104b0f370b5b295bb8dd4bd5e5
+Patch40:        dnsmasq-2.89-edns0-size.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2186481
+# Fixes issue in Patch4
+Patch41:        dnsmasq-2.85-serv_domain-rh2186481.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2186481
+# complements patch10
+Patch42:        dnsmasq-2.85-serv_domain-rh2186481-2.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=1f8f78a49b8fd6b2862a3882053b1c6e6e111e5c
+Patch43:        dnsmasq-2.87-log-root-writeable.patch
+# Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2209031
+# complements patch42
+Patch44:        dnsmasq-2.85-domain-blocklist-speedup.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -155,6 +168,11 @@ server's leases.
 %patch37 -p1 -b .SIOCGSTAMP
 %patch38 -p1 -b .rh2120357
 %patch39 -p1 -b .rh2169355
+%patch40 -p1 -b .CVE-2023-28450
+%patch41 -p1 -b .rh2186481
+%patch42 -p1 -b .rh2186481-2
+%patch43 -p1 -b .rh2156789
+%patch44 -p1 -b .rh2209031
 
 # use /var/lib/dnsmasq instead of /var/lib/misc
 for file in dnsmasq.conf.example man/dnsmasq.8 man/es/dnsmasq.8 src/config.h; do
@@ -254,6 +272,21 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/dnsmasq.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Wed Jun 14 2023 Petr Menšík <pemensik@redhat.com> - 2.79-31
+- Do not create and search --local and --address=/x/# domains (#2233542)
+
+* Wed Jun 14 2023 Petr Menšík <pemensik@redhat.com> - 2.79-30
+- Make create logfile writeable by root (#2156789)
+
+* Wed May 10 2023 Petr Menšík <pemensik@redhat.com> - 2.79-29
+- Fix also dynamically set resolvers over dbus (#2186481)
+
+* Fri Apr 21 2023 Petr Menšík <pemensik@redhat.com> - 2.79-28
+- Correct possible crashes when server=/example.net/# is used (#2186481)
+
+* Mon Apr 03 2023 Petr Menšík <pemensik@redhat.com> - 2.79-27
+- Limit offered EDNS0 size to 1232 (CVE-2023-28450)
+
 * Wed Feb 15 2023 Petr Menšík <pemensik@redhat.com> - 2.79-26
 - Avoid DHCPv6 relayed replies with Client Link-Layer Address (#2169355)
 

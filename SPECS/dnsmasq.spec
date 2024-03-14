@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        14%{?extraversion:.%{extraversion}}%{?dist}
+Release:        14%{?extraversion:.%{extraversion}}%{?dist}.1
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -69,6 +69,8 @@ Patch13:        dnsmasq-2.87-log-root-writeable.patch
 Patch14:        dnsmasq-2.85-domain-blocklist-speedup.patch
 # https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;h=9bbf098a970c9e5fa251939208e25fb21064d1be
 Patch15:        dnsmasq-2.87-coverity-forward-cache.patch
+# https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=214a046f47b9f7dd56f5eef3a8678ccbd6e973b7
+Patch16:	dnsmasq-2.90-CVE-2023-50387-CVE-2023-50868.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -212,6 +214,11 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Tue Feb 20 2024 Tomas Korbar <tkorbar@redhat.com> - 2.85-14.1
+- Fix CVE 2023-50387 and CVE 2023-50868
+- Resolves: RHEL-25674
+- Resolves: RHEL-25638
+
 * Fri Jul 28 2023 Petr Menšík <pemensik@redhat.com> - 2.85-14
 - Backport Coverity fix to hide detected issue (#2156789)
 

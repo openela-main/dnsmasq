@@ -1,0 +1,28 @@
+From 0a970b2a19c9fe5166e846d8a0c8b4f4fa5f1b4f Mon Sep 17 00:00:00 2001
+From: Simon Kelley <simon@thekelleys.org.uk>
+Date: Mon, 30 Jul 2018 14:55:39 +0100
+Subject: [PATCH] Fix crash parsing a --synth-domain with no prefix. Problem
+ introduced in 2.79/6b2b564ac34cb3c862f168e6b1457f9f0b9ca69c
+
+---
+ src/option.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/option.c b/src/option.c
+index b22fc90..4e54afb 100644
+--- a/src/option.c
++++ b/src/option.c
+@@ -2347,7 +2347,9 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
+ 		      char *star;
+ 		      new->next = daemon->synth_domains;
+ 		      daemon->synth_domains = new;
+-		      if ((star = strrchr(new->prefix, '*')) && *(star+1) == 0)
++		      if (new->prefix &&
++			  (star = strrchr(new->prefix, '*'))
++			  && *(star+1) == 0)
+ 			{
+ 			  *star = 0;
+ 			  new->indexed = 1;
+-- 
+2.41.0
+

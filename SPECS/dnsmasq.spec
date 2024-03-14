@@ -13,7 +13,7 @@
 
 Name:           dnsmasq
 Version:        2.79
-Release:        31%{?extraversion:.%{extraversion}}%{?dist}
+Release:        31%{?extraversion:.%{extraversion}}%{?dist}.2
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -96,6 +96,10 @@ Patch43:        dnsmasq-2.87-log-root-writeable.patch
 # Downstream only patch; https://bugzilla.redhat.com/show_bug.cgi?id=2209031
 # complements patch42
 Patch44:        dnsmasq-2.85-domain-blocklist-speedup.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=dd33e98da09c487a58b6cb6693b8628c0b234a3b
+Patch45:        dnsmasq-2.80-synth-domain-RHEL-15216.patch
+# https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=214a046f47b9f7dd56f5eef3a8678ccbd6e973b7
+Patch46:	dnsmasq-2.90-CVE-2023-50387-CVE-2023-50868.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -173,6 +177,8 @@ server's leases.
 %patch42 -p1 -b .rh2186481-2
 %patch43 -p1 -b .rh2156789
 %patch44 -p1 -b .rh2209031
+%patch45 -p1 -b .RHEL-15216
+%patch46 -p1 -b .CVE-2023-50868-CVE-2023-50387
 
 # use /var/lib/dnsmasq instead of /var/lib/misc
 for file in dnsmasq.conf.example man/dnsmasq.8 man/es/dnsmasq.8 src/config.h; do
@@ -272,6 +278,14 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/dnsmasq.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Wed Feb 28 2024 Tomas Korbar <tkorbar@redhat.com> - 2.79-31.2
+- Fix CVE 2023-50387 and CVE 2023-50868
+- Resolves: RHEL-25628
+- Resolves: RHEL-25666
+
+* Wed Nov 01 2023 Petr Menšík <pemensik@redhat.com> - 2.79-31.1
+- Do not crash on invalid domain in --synth-domain option (RHEL-22741)
+
 * Wed Jun 14 2023 Petr Menšík <pemensik@redhat.com> - 2.79-31
 - Do not create and search --local and --address=/x/# domains (#2233542)
 

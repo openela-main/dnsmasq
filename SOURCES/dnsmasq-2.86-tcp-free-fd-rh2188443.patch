@@ -1,0 +1,113 @@
+From 32e0e81715f60ca35738818370f5d3aacf9e2d2c Mon Sep 17 00:00:00 2001
+From: Simon Kelley <simon@thekelleys.org.uk>
+Date: Fri, 9 Apr 2021 16:08:05 +0100
+Subject: [PATCH] Fix bug in TCP process handling.
+
+Fix bug which caused dnsmasq to lose track of processes forked
+to handle TCP DNS connections under heavy load. The code
+checked that at least one free process table slot was
+available before listening on TCP sockets, but didn't take
+into account that more than one TCP connection could
+arrive, so that check was not sufficient to ensure that
+there would be slots for all new processes. It compounded
+this error by silently failing to store the process when
+it did run out of slots. Even when this bug is triggered,
+all the right things happen, and answers are still returned.
+Only under very exceptional circumstances, does the bug
+manifest itself: see
+https://lists.thekelleys.org.uk/pipermail/dnsmasq-discuss/2021q2/014976.html
+
+Thanks to Tijs Van Buggenhout for finding the conditions under
+which the bug manifests itself, and then working out
+exactly what was going on.
+
+(cherry picked from commit ad90eb075dfeeb1936e8bc0f323fcc23f89364d4)
+---
+ src/dnsmasq.c | 44 +++++++++++++++++++++++++-------------------
+ 1 file changed, 25 insertions(+), 19 deletions(-)
+
+diff --git a/src/dnsmasq.c b/src/dnsmasq.c
+index 979e33d..af9132f 100644
+--- a/src/dnsmasq.c
++++ b/src/dnsmasq.c
+@@ -1720,22 +1720,24 @@ static int set_dns_listeners(time_t now)
+   for (rfl = daemon->rfl_poll; rfl; rfl = rfl->next)
+     poll_listen(rfl->rfd->fd, POLLIN);
+   
++  /* check to see if we have free tcp process slots. */
++  for (i = MAX_PROCS - 1; i >= 0; i--)
++    if (daemon->tcp_pids[i] == 0 && daemon->tcp_pipes[i] == -1)
++      break;
++
+   for (listener = daemon->listeners; listener; listener = listener->next)
+     {
+       /* only listen for queries if we have resources */
+       if (listener->fd != -1 && wait == 0)
+ 	poll_listen(listener->fd, POLLIN);
+ 	
+-      /* death of a child goes through the select loop, so
+-	 we don't need to explicitly arrange to wake up here */
+-      if  (listener->tcpfd != -1)
+-	for (i = 0; i < MAX_PROCS; i++)
+-	  if (daemon->tcp_pids[i] == 0 && daemon->tcp_pipes[i] == -1)
+-	    {
+-	      poll_listen(listener->tcpfd, POLLIN);
+-	      break;
+-	    }
+-
++      /* Only listen for TCP connections when a process slot
++	 is available. Death of a child goes through the select loop, so
++	 we don't need to explicitly arrange to wake up here,
++	 we'll be called again when a slot becomes available. */
++      if  (listener->tcpfd != -1 && i >= 0)
++	poll_listen(listener->tcpfd, POLLIN);
++      
+ #ifdef HAVE_TFTP
+       /* tftp == 0 in single-port mode. */
+       if (tftp <= daemon->tftp_max && listener->tftpfd != -1)
+@@ -1801,7 +1803,16 @@ static void check_dns_listeners(time_t now)
+ 	tftp_request(listener, now);
+ #endif
+ 
+-      if (listener->tcpfd != -1 && poll_check(listener->tcpfd, POLLIN))
++      /* check to see if we have a free tcp process slot.
++	 Note that we can't assume that because we had
++	 at least one a poll() time, that we still do.
++	 There may be more waiting connections after
++	 poll() returns then free process slots. */
++      for (i = MAX_PROCS - 1; i >= 0; i--)
++	if (daemon->tcp_pids[i] == 0 && daemon->tcp_pipes[i] == -1)
++	  break;
++
++      if (listener->tcpfd != -1 && i >= 0 && poll_check(listener->tcpfd, POLLIN))
+ 	{
+ 	  int confd, client_ok = 1;
+ 	  struct irec *iface = NULL;
+@@ -1891,7 +1902,6 @@ static void check_dns_listeners(time_t now)
+ 		close(pipefd[0]);
+ 	      else
+ 		{
+-		  int i;
+ #ifdef HAVE_LINUX_NETWORK
+ 		  /* The child process inherits the netlink socket, 
+ 		     which it never uses, but when the parent (us) 
+@@ -1911,13 +1921,9 @@ static void check_dns_listeners(time_t now)
+ 		  read_write(pipefd[0], &a, 1, 1);
+ #endif
+ 
+-		  for (i = 0; i < MAX_PROCS; i++)
+-		    if (daemon->tcp_pids[i] == 0 && daemon->tcp_pipes[i] == -1)
+-		      {
+-			daemon->tcp_pids[i] = p;
+-			daemon->tcp_pipes[i] = pipefd[0];
+-			break;
+-		      }
++		  /* i holds index of free slot */
++		  daemon->tcp_pids[i] = p;
++		  daemon->tcp_pipes[i] = pipefd[0];
+ 		}
+ 	      close(confd);
+ 
+-- 
+2.40.1
+

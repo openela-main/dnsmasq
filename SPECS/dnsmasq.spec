@@ -13,7 +13,7 @@
 
 Name:           dnsmasq
 Version:        2.79
-Release:        31%{?extraversion:.%{extraversion}}%{?dist}.2
+Release:        33%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -178,7 +178,7 @@ server's leases.
 %patch43 -p1 -b .rh2156789
 %patch44 -p1 -b .rh2209031
 %patch45 -p1 -b .RHEL-15216
-%patch46 -p1 -b .CVE-2023-50868-CVE-2023-50387
+%patch46 -p1 -b .CVE-2023-50387-CVE-2023-50868
 
 # use /var/lib/dnsmasq instead of /var/lib/misc
 for file in dnsmasq.conf.example man/dnsmasq.8 man/es/dnsmasq.8 src/config.h; do
@@ -278,13 +278,13 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/dnsmasq.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
-* Wed Feb 28 2024 Tomas Korbar <tkorbar@redhat.com> - 2.79-31.2
+* Mon Mar 18 2024 Tomas Korbar <tkorbar@redhat.com> - 2.79-33
 - Fix CVE 2023-50387 and CVE 2023-50868
-- Resolves: RHEL-25628
-- Resolves: RHEL-25666
+- Resolves: RHEL-25667
+- Resolves: RHEL-25629
 
-* Wed Nov 01 2023 Petr Menšík <pemensik@redhat.com> - 2.79-31.1
-- Do not crash on invalid domain in --synth-domain option (RHEL-22741)
+* Wed Nov 01 2023 Petr Menšík <pemensik@redhat.com> - 2.79-32
+- Do not crash on invalid domain in --synth-domain option (RHEL-15216)
 
 * Wed Jun 14 2023 Petr Menšík <pemensik@redhat.com> - 2.79-31
 - Do not create and search --local and --address=/x/# domains (#2233542)

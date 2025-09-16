@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        16%{?extraversion:.%{extraversion}}%{?dist}
+Release:        17%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -73,6 +73,11 @@ Patch15:        dnsmasq-2.87-coverity-forward-cache.patch
 Patch16:        dnsmasq-2.86-tcp-free-fd-rh2188443.patch
 # https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=214a046f47b9f7dd56f5eef3a8678ccbd6e973b7
 Patch17:	dnsmasq-2.90-CVE-2023-50387-CVE-2023-50868.patch
+# https://lists.thekelleys.org.uk/pipermail/dnsmasq-discuss/2021q2/015107.html
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=eb1fe15ca80b6bc43cd6bfdf309ec6c590aff811
+Patch18:        dnsmasq-2.87-filter-AAAA.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=5a9eae429a7d0680d606f03f2759d7dde0bbe3f0
+Patch19:        dnsmasq-2.89-filter-AAAA-improve.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -216,6 +221,9 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Wed Aug 06 2025 Petr Menšík <pemensik@redhat.com> - 2.85-17
+- Backport filter-A and filter-AAAA options (RHEL-105367)
+
 * Fri Mar 15 2024 Tomas Korbar <tkorbar@redhat.com> - 2.85-16
 - Fix CVE 2023-50387 and CVE 2023-50868
 - Resolves: RHEL-25639

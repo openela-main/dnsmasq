@@ -1,0 +1,50 @@
+From 6fda9cd7cba519a8aa96b43ebc34cb6c46b3bfe7 Mon Sep 17 00:00:00 2001
+From: Doran Moppert <dmoppert@redhat.com>
+Date: Tue, 26 Sep 2017 14:48:20 +0930
+Subject: [PATCH] google patch hand-applied
+
+---
+ src/edns0.c   | 10 +++++-----
+ src/rfc1035.c |  5 ++++-
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/src/edns0.c b/src/edns0.c
+index 598478f..72127e5 100644
+--- a/src/edns0.c
++++ b/src/edns0.c
+@@ -209,11 +209,11 @@ size_t add_pseudoheader(struct dns_header *header, size_t plen, unsigned char *l
+       /* Copy back any options */
+       if (buff)
+ 	{
+-          if (p + rdlen > limit)
+-          {
+-            free(buff);
+-            return plen; /* Too big */
+-          }
++	  if (p + rdlen > limit)
++	  {
++	    free(buff);
++	    return plen; /* Too big */
++	  }
+ 	  memcpy(p, buff, rdlen);
+ 	  free(buff);
+ 	  p += rdlen;
+diff --git a/src/rfc1035.c b/src/rfc1035.c
+index 387d894..7fb1468 100644
+--- a/src/rfc1035.c
++++ b/src/rfc1035.c
+@@ -1581,7 +1581,10 @@ size_t answer_request(struct dns_header *header, char *limit, size_t qlen,
+   size_t len;
+   int rd_bit = (header->hb3 & HB3_RD);
+   int count = 255; /* catch loops */
+-  
++
++  // Make sure we do not underflow here too.
++  if (qlen > (limit - ((char *)header))) return 0;
++
+   if (stale)
+     *stale = 0;
+ 
+-- 
+2.43.0
+

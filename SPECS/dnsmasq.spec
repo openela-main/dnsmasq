@@ -13,7 +13,7 @@
 
 Name:           dnsmasq
 Version:        2.79
-Release:        33%{?extraversion:.%{extraversion}}%{?dist}
+Release:        35%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -100,6 +100,13 @@ Patch44:        dnsmasq-2.85-domain-blocklist-speedup.patch
 Patch45:        dnsmasq-2.80-synth-domain-RHEL-15216.patch
 # https://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=214a046f47b9f7dd56f5eef3a8678ccbd6e973b7
 Patch46:	dnsmasq-2.90-CVE-2023-50387-CVE-2023-50868.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=141a26f979b4bc959d8e866a295e24f8cf456920
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=305cb79c5754d5554729b18a2c06fe7ce699687a
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=ea6b0b2665ed95baa41fe813547103f7f1ccb953
+Patch47:        dnsmasq-2.85-forward-retries.patch
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=45d8a2435e8200e892b82b6a04c7ddfb07a4165a
+# http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=eb1fe15ca80b6bc43cd6bfdf309ec6c590aff811
+Patch48:        dnsmasq-2.79-cname-collision.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -179,6 +186,8 @@ server's leases.
 %patch44 -p1 -b .rh2209031
 %patch45 -p1 -b .RHEL-15216
 %patch46 -p1 -b .CVE-2023-50387-CVE-2023-50868
+%patch47 -p1 -b .RHEL-6586
+%patch48 -p1 -b .RHEL-61943
 
 # use /var/lib/dnsmasq instead of /var/lib/misc
 for file in dnsmasq.conf.example man/dnsmasq.8 man/es/dnsmasq.8 src/config.h; do
@@ -278,6 +287,13 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/dnsmasq.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Mon Aug 18 2025 Tomas Korbar <tkorbar@redhat.com> - 2.79-35
+- Fix dnsmasq caching of intertwined CNAMES
+- Resolves: RHEL-61943
+
+* Mon Aug 11 2025 Petr Menšík <pemensik@redhat.com> - 2.79-34
+- Enable retries again (RHEL-6586)
+
 * Mon Mar 18 2024 Tomas Korbar <tkorbar@redhat.com> - 2.79-33
 - Fix CVE 2023-50387 and CVE 2023-50868
 - Resolves: RHEL-25667

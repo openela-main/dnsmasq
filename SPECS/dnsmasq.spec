@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        17%{?extraversion:.%{extraversion}}%{?dist}
+Release:        18%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -35,6 +35,7 @@ Source4:        %{url}%{?extrapath}test-release-public-key
 %else
 Source4:        http://www.thekelleys.org.uk/srkgpg.txt
 %endif
+Source5:        tmpfiles-dnsmasq.conf
 
 # https://bugzilla.redhat.com/show_bug.cgi?id=1495409
 Patch1:         dnsmasq-2.77-underflow.patch
@@ -186,6 +187,9 @@ rm -rf %{buildroot}%{_initrddir}
 #install systemd sysuser file
 install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 
+# install tmpfiles.d config
+install -Dpm 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/%{name}.conf
+
 %pre
 #precreate users so that rpm can install files owned by that user
 %sysusers_create_compat %{SOURCE2}
@@ -214,6 +218,7 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/trust-anchors.conf
 %{_sysusersdir}/dnsmasq.conf
+%{_tmpfilesdir}/dnsmasq.conf
 
 %files utils
 %license COPYING COPYING-v3
@@ -221,6 +226,10 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Thu Dec 11 2025 Fedor Vorobev <fvorobev@redhat.com> - 2.85-18
+- Added installation of tmpfiles config.
+- Resolves: RHEL-135305
+
 * Wed Aug 06 2025 Petr Menšík <pemensik@redhat.com> - 2.85-17
 - Backport filter-A and filter-AAAA options (RHEL-105367)
 

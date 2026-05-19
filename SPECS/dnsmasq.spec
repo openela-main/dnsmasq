@@ -23,7 +23,7 @@
 
 Name:           dnsmasq
 Version:        2.90
-Release:        5%{?extraversion:.%{extraversion}}%{?dist}
+Release:        7%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 # SPDX identifiers already
@@ -47,6 +47,14 @@ Patch1:         dnsmasq-2.77-underflow.patch
 # https://bugzilla.redhat.com/show_bug.cgi?id=1852373
 Patch2:         dnsmasq-2.81-configuration.patch
 Patch3:         dnsmasq-2.78-fips.patch
+# https://bugzilla.redhat.com/show_bug.cgi?id=2439088
+Patch4:         dnsmasq-CVE-2026-2291.patch
+Patch5:         dnsmasq-2.93-CVE-2026-2291.patch
+Patch6:         dnsmasq-2.93-CVE-2026-4890.patch
+Patch7:         dnsmasq-2.93-CVE-2026-4891.patch
+Patch8:         dnsmasq-2.93-CVE-2026-4892.patch
+Patch9:         dnsmasq-2.93-CVE-2026-4893.patch
+Patch10:        dnsmasq-2.93-CVE-2026-5172.patch
 
 
 Requires:       nettle
@@ -221,6 +229,18 @@ install -Dpm 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/%{name}.conf
 %endif
 
 %changelog
+* Tue May 05 2026 Petr Menšík <pemensik@redhat.com> - 2.90-7
+- Prevent overflow in extract_name function (CVE-2026-2291)
+- Prevent DoS in DNSSEC validation (CVE-2026-4890)
+- Prevent out-of-bounds read in DNSSEC validation (CVE-2026-4891)
+- Prevent out-of-bounds write in DHCPv6 server (CVE-2026-4892)
+- Prevent source check avoidance by RFC 7871 client-subnet (CVE-2026-4893)
+- Prevent out-of-bounds read in extract_addresses (CVE-2026-5172)
+
+* Wed Mar 18 2026 Petr Menšík <pemensik@redhat.com> - 2.90-6
+- Prevent heap buffer overflow in cache via NAME_ESCAPE expansion
+  (CVE-2026-2291)
+
 * Fri Dec 05 2025 Fedor Vorobev <fvorobev@redhat.com> - 2.90-5
 - Added installation of tmpfiles.d config
   Resolves: RHEL-122843

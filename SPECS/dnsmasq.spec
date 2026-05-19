@@ -23,7 +23,7 @@
 
 Name:           dnsmasq
 Version:        2.90
-Release:        4%{?extraversion:.%{extraversion}}%{?dist}
+Release:        5%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 # SPDX identifiers already
@@ -40,6 +40,7 @@ Source4:        %{url}%{?extrapath}test-release-public-key
 %else
 Source4:        http://www.thekelleys.org.uk/srkgpg.txt
 %endif
+Source5:        tmpfiles-dnsmasq.conf
 
 # https://bugzilla.redhat.com/show_bug.cgi?id=1495409
 Patch1:         dnsmasq-2.77-underflow.patch
@@ -174,6 +175,9 @@ rm -rf %{buildroot}%{_initrddir}
 #install systemd sysuser file
 install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 
+# install tmpfiles.d config
+install -Dpm 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/%{name}.conf
+
 %if %{with i18n}
 %make_install PREFIX=/usr install-i18n
 %find_lang %{name} --with-man
@@ -205,6 +209,7 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/trust-anchors.conf
 %{_sysusersdir}/dnsmasq.conf
+%{_tmpfilesdir}/dnsmasq.conf
 
 %files utils
 %license COPYING COPYING-v3
@@ -216,6 +221,10 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/%{name}.conf
 %endif
 
 %changelog
+* Fri Dec 05 2025 Fedor Vorobev <fvorobev@redhat.com> - 2.90-5
+- Added installation of tmpfiles.d config
+  Resolves: RHEL-122843
+
 * Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 2.90-4
 - Bump release for October 2024 mass rebuild:
   Resolves: RHEL-64018

@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        18%{?extraversion:.%{extraversion}}%{?dist}
+Release:        18%{?extraversion:.%{extraversion}}%{?dist}.1
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -79,6 +79,11 @@ Patch17:	dnsmasq-2.90-CVE-2023-50387-CVE-2023-50868.patch
 Patch18:        dnsmasq-2.87-filter-AAAA.patch
 # http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=5a9eae429a7d0680d606f03f2759d7dde0bbe3f0
 Patch19:        dnsmasq-2.89-filter-AAAA-improve.patch
+Patch20:        dnsmasq-2.93-CVE-2026-2291.patch
+Patch21:        dnsmasq-2.93-CVE-2026-4890.patch
+Patch22:        dnsmasq-2.93-CVE-2026-4891.patch
+Patch23:        dnsmasq-2.93-CVE-2026-4892.patch
+Patch24:        dnsmasq-2.93-CVE-2026-4893.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -226,6 +231,13 @@ install -Dpm 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Tue May 05 2026 Petr Menšík <pemensik@redhat.com> - 2.85-18.1
+- Prevent overflow in extract_name function (CVE-2026-2291)
+- Prevent DoS in DNSSEC validation (CVE-2026-4890)
+- Prevent out-of-bounds read in DNSSEC validation (CVE-2026-4891)
+- Prevent out-of-bounds write in DHCPv6 server (CVE-2026-4892)
+- Prevent source check avoidance by RFC 7871 client-subnet (CVE-2026-4893)
+
 * Thu Dec 11 2025 Fedor Vorobev <fvorobev@redhat.com> - 2.85-18
 - Added installation of tmpfiles config.
 - Resolves: RHEL-135305

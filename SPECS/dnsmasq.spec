@@ -13,7 +13,7 @@
 
 Name:           dnsmasq
 Version:        2.79
-Release:        35%{?extraversion:.%{extraversion}}%{?dist}
+Release:        36%{?extraversion:.%{extraversion}}%{?dist}
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -107,6 +107,11 @@ Patch47:        dnsmasq-2.85-forward-retries.patch
 # http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=45d8a2435e8200e892b82b6a04c7ddfb07a4165a
 # http://thekelleys.org.uk/gitweb/?p=dnsmasq.git;a=commit;h=eb1fe15ca80b6bc43cd6bfdf309ec6c590aff811
 Patch48:        dnsmasq-2.79-cname-collision.patch
+Patch49:        dnsmasq-2.93-CVE-2026-2291.patch
+Patch50:        dnsmasq-2.93-CVE-2026-4890.patch
+Patch51:        dnsmasq-2.93-CVE-2026-4891.patch
+Patch52:        dnsmasq-2.93-CVE-2026-4892.patch
+Patch53:        dnsmasq-2.93-CVE-2026-4893.patch
 
 # This is workaround to nettle bug #1549190
 # https://bugzilla.redhat.com/show_bug.cgi?id=1549190
@@ -188,6 +193,11 @@ server's leases.
 %patch46 -p1 -b .CVE-2023-50387-CVE-2023-50868
 %patch47 -p1 -b .RHEL-6586
 %patch48 -p1 -b .RHEL-61943
+%patch49 -p1 -b .CVE-2026-2291
+%patch50 -p1 -b .CVE-2026-4890
+%patch51 -p1 -b .CVE-2026-4891
+%patch52 -p1 -b .CVE-2026-4892
+%patch53 -p1 -b .CVE-2026-4893
 
 # use /var/lib/dnsmasq instead of /var/lib/misc
 for file in dnsmasq.conf.example man/dnsmasq.8 man/es/dnsmasq.8 src/config.h; do
@@ -287,6 +297,13 @@ install -Dpm 644 %{SOURCE2} %{buildroot}%{_sysusersdir}/dnsmasq.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Tue May 05 2026 Petr Menšík <pemensik@redhat.com> - 2.79-36
+- Prevent overflow in extract_name function (CVE-2026-2291)
+- Prevent DoS in DNSSEC validation (CVE-2026-4890)
+- Prevent out-of-bounds read in DNSSEC validation (CVE-2026-4891)
+- Prevent out-of-bounds write in DHCPv6 server (CVE-2026-4892)
+- Prevent source check avoidance by RFC 7871 client-subnet (CVE-2026-4893)
+
 * Mon Aug 18 2025 Tomas Korbar <tkorbar@redhat.com> - 2.79-35
 - Fix dnsmasq caching of intertwined CNAMES
 - Resolves: RHEL-61943

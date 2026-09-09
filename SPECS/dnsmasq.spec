@@ -20,7 +20,7 @@
 
 Name:           dnsmasq
 Version:        2.85
-Release:        18%{?extraversion:.%{extraversion}}%{?dist}.1
+Release:        18%{?extraversion:.%{extraversion}}%{?dist}.2
 Summary:        A lightweight DHCP/caching DNS server
 
 License:        GPLv2 or GPLv3
@@ -36,6 +36,8 @@ Source4:        %{url}%{?extrapath}test-release-public-key
 Source4:        http://www.thekelleys.org.uk/srkgpg.txt
 %endif
 Source5:        tmpfiles-dnsmasq.conf
+# https://thekelleys.org.uk/gitweb-noai/?p=dnsmasq.git;a=blob_plain;f=trust-anchors.conf;hb=d6379cd923676dd21bc05ed8bd8fe4fb24337c98
+Source6:        trust-anchors.conf
 
 # https://bugzilla.redhat.com/show_bug.cgi?id=1495409
 Patch1:         dnsmasq-2.77-underflow.patch
@@ -172,7 +174,7 @@ install src/dnsmasq $RPM_BUILD_ROOT%{_sbindir}/dnsmasq
 install dnsmasq.conf.example $RPM_BUILD_ROOT%{_sysconfdir}/dnsmasq.conf
 install dbus/dnsmasq.conf $RPM_BUILD_ROOT%{_sysconfdir}/dbus-1/system.d/
 install -m 644 man/dnsmasq.8 $RPM_BUILD_ROOT%{_mandir}/man8/
-install -D trust-anchors.conf $RPM_BUILD_ROOT%{_datadir}/%{name}/trust-anchors.conf
+install -D %{SOURCE6} $RPM_BUILD_ROOT%{_datadir}/%{name}/trust-anchors.conf
 
 # utils sub package
 mkdir -p $RPM_BUILD_ROOT%{_bindir} \
@@ -231,6 +233,9 @@ install -Dpm 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/%{name}.conf
 %{_mandir}/man1/dhcp_*
 
 %changelog
+* Wed Aug 26 2026 Petr Menšík <pemensik@redhat.com> - 2.85-18.2
+- Update DNSSEC trust anchors with 2024 key (38696) (RHEL-249265)
+
 * Tue May 05 2026 Petr Menšík <pemensik@redhat.com> - 2.85-18.1
 - Prevent overflow in extract_name function (CVE-2026-2291)
 - Prevent DoS in DNSSEC validation (CVE-2026-4890)
